@@ -1,0 +1,3 @@
+mkdir build && cd build
+cmake -DASSIMP_BUILD_ASSIMP_TOOLS=OFF -DASSIMP_BUILD_SAMPLES=OFF -DASSIMP_BUILD_TESTS=OFF ..
+cmake --build .

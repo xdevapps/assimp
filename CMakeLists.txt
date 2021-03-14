@@ -667,11 +667,11 @@ IF ( ASSIMP_BUILD_ASSIMP_TOOLS )
   IF ( WIN32 )
     OPTION ( ASSIMP_BUILD_ASSIMP_VIEW "If the Assimp view tool is built. (requires DirectX)" OFF )
     IF ( ASSIMP_BUILD_ASSIMP_VIEW )
-      ADD_SUBDIRECTORY( tools/assimp_view/ )
+      # ADD_SUBDIRECTORY( tools/assimp_view/ )
     ENDIF ()
   ENDIF ()
   # The command line tool
-  ADD_SUBDIRECTORY( tools/assimp_cmd/ )
+  #ADD_SUBDIRECTORY( tools/assimp_cmd/ )
 ENDIF ()
 
 IF ( ASSIMP_BUILD_SAMPLES )
