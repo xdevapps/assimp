@@ -44,7 +44,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "AssetLib/glTF2/glTF2Importer.h"
 #include "PostProcessing/MakeVerboseFormat.h"
 #include "AssetLib/glTF2/glTF2Asset.h"
+#if !defined(ASSIMP_BUILD_NO_EXPORT)
 #include "AssetLib/glTF2/glTF2AssetWriter.h"
+#endif
 
 #include <assimp/CreateAnimMesh.h>
 #include <assimp/StringComparison.h>
@@ -323,7 +325,7 @@ static aiMaterial *ImportMaterial(std::vector<int> &embeddedTexIdxs, Asset &r, M
 
 void glTF2Importer::ImportMaterials(glTF2::Asset &r) {
     const unsigned int numImportedMaterials = unsigned(r.materials.Size());
-    ASSIMP_LOG_DEBUG_F("Importing ", numImportedMaterials, " materials");
+    ASSIMP_LOG_DEBUG("Importing ", numImportedMaterials, " materials");
     Material defaultMaterial;
 
     mScene->mNumMaterials = numImportedMaterials + 1;
@@ -400,7 +402,7 @@ aiColor4D* GetVertexColorsForType(glTF2::Ref<glTF2::Accessor> input) {
 }
 
 void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
-    ASSIMP_LOG_DEBUG_F("Importing ", r.meshes.Size(), " meshes");
+    ASSIMP_LOG_DEBUG("Importing ", r.meshes.Size(), " meshes");
     std::vector<std::unique_ptr<aiMesh>> meshes;
 
     unsigned int k = 0;
@@ -453,14 +455,14 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
 
             if (attr.normal.size() > 0 && attr.normal[0]) {
                 if (attr.normal[0]->count != aim->mNumVertices) {
-                    DefaultLogger::get()->warn("Normal count in mesh \"" + mesh.name + "\" does not match the vertex count, normals ignored.");
+                    DefaultLogger::get()->warn("Normal count in mesh \"", mesh.name, "\" does not match the vertex count, normals ignored.");
                 } else {
                     attr.normal[0]->ExtractData(aim->mNormals);
 
                     // only extract tangents if normals are present
                     if (attr.tangent.size() > 0 && attr.tangent[0]) {
                         if (attr.tangent[0]->count != aim->mNumVertices) {
-                            DefaultLogger::get()->warn("Tangent count in mesh \"" + mesh.name + "\" does not match the vertex count, tangents ignored.");
+                            DefaultLogger::get()->warn("Tangent count in mesh \"", mesh.name, "\" does not match the vertex count, tangents ignored.");
                         } else {
                             // generate bitangents from normals and tangents according to spec
                             Tangent *tangents = nullptr;
@@ -483,7 +485,7 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
 
             for (size_t c = 0; c < attr.color.size() && c < AI_MAX_NUMBER_OF_COLOR_SETS; ++c) {
                 if (attr.color[c]->count != aim->mNumVertices) {
-                    DefaultLogger::get()->warn("Color stream size in mesh \"" + mesh.name +
+                    DefaultLogger::get()->warn("Color stream size in mesh \"", mesh.name,
                                                "\" does not match the vertex count");
                     continue;
                 }
@@ -506,7 +508,7 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
                 }
 
                 if (attr.texcoord[tc]->count != aim->mNumVertices) {
-                    DefaultLogger::get()->warn("Texcoord stream size in mesh \"" + mesh.name +
+                    DefaultLogger::get()->warn("Texcoord stream size in mesh \"", mesh.name,
                                                "\" does not match the vertex count");
                     continue;
                 }
@@ -527,8 +529,8 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
                 std::fill(aim->mAnimMeshes, aim->mAnimMeshes + aim->mNumAnimMeshes, nullptr);
                 for (size_t i = 0; i < targets.size(); i++) {
                     bool needPositions = targets[i].position.size() > 0;
-                    bool needNormals = targets[i].normal.size() > 0;
-                    bool needTangents = targets[i].tangent.size() > 0;
+                    bool needNormals = (targets[i].normal.size() > 0) && aim->HasNormals();
+                    bool needTangents = (targets[i].tangent.size() > 0) && aim->HasTangentsAndBitangents();
                     // GLTF morph does not support colors and texCoords
                     aim->mAnimMeshes[i] = aiCreateAnimMesh(aim,
                             needPositions, needNormals, needTangents, false, false);
@@ -536,35 +538,47 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
                     Mesh::Primitive::Target &target = targets[i];
 
                     if (needPositions) {
-                        aiVector3D *positionDiff = nullptr;
-                        target.position[0]->ExtractData(positionDiff);
-                        for (unsigned int vertexId = 0; vertexId < aim->mNumVertices; vertexId++) {
-                            aiAnimMesh.mVertices[vertexId] += positionDiff[vertexId];
+                        if (target.position[0]->count != aim->mNumVertices) {
+                            ASSIMP_LOG_WARN("Positions of target ", i, " in mesh \"", mesh.name, "\" does not match the vertex count");
+                        } else {
+                            aiVector3D *positionDiff = nullptr;
+                            target.position[0]->ExtractData(positionDiff);
+                            for (unsigned int vertexId = 0; vertexId < aim->mNumVertices; vertexId++) {
+                                aiAnimMesh.mVertices[vertexId] += positionDiff[vertexId];
+                            }
+                            delete[] positionDiff;
                         }
-                        delete[] positionDiff;
                     }
                     if (needNormals) {
-                        aiVector3D *normalDiff = nullptr;
-                        target.normal[0]->ExtractData(normalDiff);
-                        for (unsigned int vertexId = 0; vertexId < aim->mNumVertices; vertexId++) {
-                            aiAnimMesh.mNormals[vertexId] += normalDiff[vertexId];
+                        if (target.normal[0]->count != aim->mNumVertices) {
+                            ASSIMP_LOG_WARN("Normals of target ", i, " in mesh \"", mesh.name, "\" does not match the vertex count");
+                        } else {
+                            aiVector3D *normalDiff = nullptr;
+                            target.normal[0]->ExtractData(normalDiff);
+                            for (unsigned int vertexId = 0; vertexId < aim->mNumVertices; vertexId++) {
+                                aiAnimMesh.mNormals[vertexId] += normalDiff[vertexId];
+                            }
+                            delete[] normalDiff;
                         }
-                        delete[] normalDiff;
                     }
                     if (needTangents) {
-                        Tangent *tangent = nullptr;
-                        attr.tangent[0]->ExtractData(tangent);
+                        if (target.tangent[0]->count != aim->mNumVertices) {
+                            ASSIMP_LOG_WARN("Tangents of target ", i, " in mesh \"", mesh.name, "\" does not match the vertex count");
+                        } else {
+                            Tangent *tangent = nullptr;
+                            attr.tangent[0]->ExtractData(tangent);
 
-                        aiVector3D *tangentDiff = nullptr;
-                        target.tangent[0]->ExtractData(tangentDiff);
+                            aiVector3D *tangentDiff = nullptr;
+                            target.tangent[0]->ExtractData(tangentDiff);
 
-                        for (unsigned int vertexId = 0; vertexId < aim->mNumVertices; ++vertexId) {
-                            tangent[vertexId].xyz += tangentDiff[vertexId];
-                            aiAnimMesh.mTangents[vertexId] = tangent[vertexId].xyz;
-                            aiAnimMesh.mBitangents[vertexId] = (aiAnimMesh.mNormals[vertexId] ^ tangent[vertexId].xyz) * tangent[vertexId].w;
+                            for (unsigned int vertexId = 0; vertexId < aim->mNumVertices; ++vertexId) {
+                                tangent[vertexId].xyz += tangentDiff[vertexId];
+                                aiAnimMesh.mTangents[vertexId] = tangent[vertexId].xyz;
+                                aiAnimMesh.mBitangents[vertexId] = (aiAnimMesh.mNormals[vertexId] ^ tangent[vertexId].xyz) * tangent[vertexId].w;
+                            }
+                            delete[] tangent;
+                            delete[] tangentDiff;
                         }
-                        delete[] tangent;
-                        delete[] tangentDiff;
                     }
                     if (mesh.weights.size() > i) {
                         aiAnimMesh.mWeight = mesh.weights[i];
@@ -771,7 +785,7 @@ void glTF2Importer::ImportCameras(glTF2::Asset &r) {
     if (!r.cameras.Size()) return;
 
     const unsigned int numCameras = r.cameras.Size();
-    ASSIMP_LOG_DEBUG_F("Importing ", numCameras, " cameras");
+    ASSIMP_LOG_DEBUG("Importing ", numCameras, " cameras");
     mScene->mNumCameras = numCameras;
     mScene->mCameras = new aiCamera *[numCameras];
     std::fill(mScene->mCameras, mScene->mCameras + numCameras, nullptr);
@@ -808,7 +822,7 @@ void glTF2Importer::ImportLights(glTF2::Asset &r) {
         return;
 
     const unsigned int numLights = r.lights.Size();
-    ASSIMP_LOG_DEBUG_F("Importing ", numLights, " lights");
+    ASSIMP_LOG_DEBUG("Importing ", numLights, " lights");
     mScene->mNumLights = numLights;
     mScene->mLights = new aiLight *[numLights];
     std::fill(mScene->mLights, mScene->mLights + numLights, nullptr);
@@ -1158,7 +1172,7 @@ aiNodeAnim *CreateNodeAnim(glTF2::Asset&, Node &node, AnimationSamplers &sampler
 
         static const float kMillisecondsFromSeconds = 1000.f;
 
-        if (samplers.translation) {
+        if (samplers.translation && samplers.translation->input && samplers.translation->output) {
             float *times = nullptr;
             samplers.translation->input->ExtractData(times);
             aiVector3D *values = nullptr;
@@ -1182,7 +1196,7 @@ aiNodeAnim *CreateNodeAnim(glTF2::Asset&, Node &node, AnimationSamplers &sampler
             anim->mPositionKeys->mValue.z = node.translation.value[2];
         }
 
-        if (samplers.rotation) {
+        if (samplers.rotation && samplers.rotation->input && samplers.rotation->output) {
             float *times = nullptr;
             samplers.rotation->input->ExtractData(times);
             aiQuaternion *values = nullptr;
@@ -1210,7 +1224,7 @@ aiNodeAnim *CreateNodeAnim(glTF2::Asset&, Node &node, AnimationSamplers &sampler
             anim->mRotationKeys->mValue.w = node.rotation.value[3];
         }
 
-        if (samplers.scale) {
+        if (samplers.scale && samplers.scale->input && samplers.scale->output) {
             float *times = nullptr;
             samplers.scale->input->ExtractData(times);
             aiVector3D *values = nullptr;
@@ -1315,7 +1329,7 @@ void glTF2Importer::ImportAnimations(glTF2::Asset &r) {
     if (!r.scene) return;
 
     const unsigned numAnimations = r.animations.Size();
-    ASSIMP_LOG_DEBUG_F("Importing ", numAnimations, " animations");
+    ASSIMP_LOG_DEBUG("Importing ", numAnimations, " animations");
     mScene->mNumAnimations = numAnimations;
     if (mScene->mNumAnimations == 0) {
         return;
@@ -1431,7 +1445,7 @@ void glTF2Importer::ImportEmbeddedTextures(glTF2::Asset &r) {
     if (numEmbeddedTexs == 0)
         return;
 
-      ASSIMP_LOG_DEBUG_F("Importing ", numEmbeddedTexs, " embedded textures");
+      ASSIMP_LOG_DEBUG("Importing ", numEmbeddedTexs, " embedded textures");
 
     mScene->mTextures = new aiTexture *[numEmbeddedTexs];
     std::fill(mScene->mTextures, mScene->mTextures + numEmbeddedTexs, nullptr);

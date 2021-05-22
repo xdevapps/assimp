@@ -278,7 +278,7 @@ void STEP::ReadFile(DB& db,const EXPRESS::ConversionSchema& scheme,
             --ne;
         } while (IsSpace(s.at(ne)));
         std::string type = s.substr(ns, ne - ns + 1);
-        type = ai_str_tolower(type);
+        type = ai_tolower(type);
         const char* sz = scheme.GetStaticStringForToken(type);
         if(sz) {
             const std::string::size_type szLen = n2-n1+1;
@@ -297,8 +297,8 @@ void STEP::ReadFile(DB& db,const EXPRESS::ConversionSchema& scheme,
     }
 
     if ( !DefaultLogger::isNullLogger()){
-        ASSIMP_LOG_DEBUG((Formatter::format(),"STEP: got ",map.size()," object records with ",
-            db.GetRefs().size()," inverse index entries"));
+        ASSIMP_LOG_DEBUG("STEP: got ",map.size()," object records with ",
+            db.GetRefs().size()," inverse index entries");
     }
 }
 
