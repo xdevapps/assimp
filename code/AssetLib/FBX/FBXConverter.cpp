@@ -862,7 +862,7 @@ bool FBXConverter::GenerateTransformationNodeChain(const Model &model, const std
     output_nodes.push_back(std::move(nd));
     return false;
 }
-  
+
 void FBXConverter::SetupNodeMetadata(const Model &model, aiNode &nd) {
     const PropertyTable &props = model.Props();
     DirectPropertyMap unparsedProperties = props.GetUnparsedProperties();
@@ -1125,6 +1125,8 @@ unsigned int FBXConverter::ConvertMeshSingleMaterial(const MeshGeometry &mesh, c
         for (const aiVector2D &v : uvs) {
             *out_uv++ = aiVector3D(v.x, v.y, 0.0f);
         }
+
+        out_mesh->mTextureCoordsNames[i] = mesh.GetTextureCoordChannelName(i);
 
         out_mesh->mNumUVComponents[i] = 2;
     }
@@ -1764,6 +1766,7 @@ void FBXConverter::TrySetTextureProperties(aiMaterial *out_mat, const TextureMap
         // XXX handle all kinds of UV transformations
         uvTrafo.mScaling = tex->UVScaling();
         uvTrafo.mTranslation = tex->UVTranslation();
+        uvTrafo.mRotation = tex->UVRotation();
         out_mat->AddProperty(&uvTrafo, 1, _AI_MATKEY_UVTRANSFORM_BASE, target, 0);
 
         const PropertyTable &props = tex->Props();
@@ -1883,6 +1886,7 @@ void FBXConverter::TrySetTextureProperties(aiMaterial *out_mat, const LayeredTex
         // XXX handle all kinds of UV transformations
         uvTrafo.mScaling = tex->UVScaling();
         uvTrafo.mTranslation = tex->UVTranslation();
+        uvTrafo.mRotation = tex->UVRotation();
         out_mat->AddProperty(&uvTrafo, 1, _AI_MATKEY_UVTRANSFORM_BASE, target, texIndex);
 
         const PropertyTable &props = tex->Props();
@@ -2126,7 +2130,12 @@ void FBXConverter::SetShadingPropertiesCommon(aiMaterial *out_mat, const Propert
     const aiColor3D &Emissive = GetColorPropertyFromMaterial(props, "Emissive", ok);
     if (ok) {
         out_mat->AddProperty(&Emissive, 1, AI_MATKEY_COLOR_EMISSIVE);
-    }
+    } else {
+        const aiColor3D &emissiveColor = GetColorProperty(props, "Maya|emissive", ok);
+        if (ok) {
+            out_mat->AddProperty(&emissiveColor, 1, AI_MATKEY_COLOR_EMISSIVE);
+        }
+     }
 
     const aiColor3D &Ambient = GetColorPropertyFromMaterial(props, "Ambient", ok);
     if (ok) {
@@ -2207,6 +2216,52 @@ void FBXConverter::SetShadingPropertiesCommon(aiMaterial *out_mat, const Propert
     if (ok) {
         out_mat->AddProperty(&DispFactor, 1, "$mat.displacementscaling", 0, 0);
     }
+
+    // PBR material information
+    const aiColor3D &baseColor = GetColorProperty(props, "Maya|base_color", ok);
+    if (ok) {
+        out_mat->AddProperty(&baseColor, 1, AI_MATKEY_BASE_COLOR);
+    }
+
+    const float useColorMap = PropertyGet<float>(props, "Maya|use_color_map", ok);
+    if (ok) {
+        out_mat->AddProperty(&useColorMap, 1, AI_MATKEY_USE_COLOR_MAP);
+    }
+
+    const float useMetallicMap = PropertyGet<float>(props, "Maya|use_metallic_map", ok);
+    if (ok) {
+        out_mat->AddProperty(&useMetallicMap, 1, AI_MATKEY_USE_METALLIC_MAP);
+    }
+
+    const float metallicFactor = PropertyGet<float>(props, "Maya|metallic", ok);
+    if (ok) {
+        out_mat->AddProperty(&metallicFactor, 1, AI_MATKEY_METALLIC_FACTOR);
+    }
+
+    const float useRoughnessMap = PropertyGet<float>(props, "Maya|use_roughness_map", ok);
+    if (ok) {
+        out_mat->AddProperty(&useRoughnessMap, 1, AI_MATKEY_USE_ROUGHNESS_MAP);
+    }
+
+    const float roughnessFactor = PropertyGet<float>(props, "Maya|roughness", ok);
+    if (ok) {
+        out_mat->AddProperty(&roughnessFactor, 1, AI_MATKEY_ROUGHNESS_FACTOR);
+    }
+
+    const float useEmissiveMap = PropertyGet<float>(props, "Maya|use_emissive_map", ok);
+    if (ok) {
+        out_mat->AddProperty(&useEmissiveMap, 1, AI_MATKEY_USE_EMISSIVE_MAP);
+    }
+
+    const float emissiveIntensity = PropertyGet<float>(props, "Maya|emissive_intensity", ok);
+    if (ok) {
+        out_mat->AddProperty(&emissiveIntensity, 1, AI_MATKEY_EMISSIVE_INTENSITY);
+    }
+
+    const float useAOMap = PropertyGet<float>(props, "Maya|use_ao_map", ok);
+    if (ok) {
+        out_mat->AddProperty(&useAOMap, 1, AI_MATKEY_USE_AO_MAP);
+    }
 }
 
 void FBXConverter::SetShadingPropertiesRaw(aiMaterial *out_mat, const PropertyTable &props, const TextureMap &_textures, const MeshGeometry *const mesh) {
@@ -2271,6 +2326,7 @@ void FBXConverter::SetShadingPropertiesRaw(aiMaterial *out_mat, const PropertyTa
             // XXX handle all kinds of UV transformations
             uvTrafo.mScaling = tex->UVScaling();
             uvTrafo.mTranslation = tex->UVTranslation();
+            uvTrafo.mRotation = tex->UVRotation();
             out_mat->AddProperty(&uvTrafo, 1, (name + "|uvtrafo").c_str(), aiTextureType_UNKNOWN, 0);
 
             int uvIndex = 0;
@@ -2546,7 +2602,7 @@ void FBXConverter::ConvertAnimationStack(const AnimationStack &st) {
             anim->mMorphMeshChannels = new aiMeshMorphAnim *[numMorphMeshChannels];
             anim->mNumMorphMeshChannels = numMorphMeshChannels;
             unsigned int i = 0;
-            for (auto morphAnimIt : morphAnimDatas) {
+            for (const auto &morphAnimIt : morphAnimDatas) {
                 morphAnimData *animData = morphAnimIt.second;
                 unsigned int numKeys = static_cast<unsigned int>(animData->size());
                 aiMeshMorphAnim *meshMorphAnim = new aiMeshMorphAnim();
@@ -3516,7 +3572,7 @@ void FBXConverter::ConvertOrphanedEmbeddedTextures() {
                         if (texture->Media() && texture->Media()->ContentLength() > 0) {
                             realTexture = texture;
                         }
-                    }    
+                    }
                 }
             } catch (...) {
                 // do nothing
